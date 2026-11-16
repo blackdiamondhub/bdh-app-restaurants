@@ -16,6 +16,7 @@ from django.db import connection, transaction
 from django.db.models import Q
 from django.utils import timezone
 
+from bdh_sdk import secrets
 from bdh_sdk.settings import app_setting
 
 from .models import Photo, Restaurant
@@ -41,7 +42,9 @@ LOCK_SECONDS = 60 * 60
 
 
 def api_key():
-    return app_setting("restaurants", "google_places_api_key", "", legacy=["GOOGLE_PLACES_API_KEY"])
+    """The key from the hub's secret store; older installs kept it as a plain setting."""
+    return (secrets.get("google_places_api_key", app="restaurants", legacy=("GOOGLE_PLACES_API_KEY",))
+            or app_setting("restaurants", "google_places_api_key", "", legacy=["GOOGLE_PLACES_API_KEY"]))
 
 
 def fetch_details(place_id, key):

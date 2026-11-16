@@ -13,6 +13,7 @@ from bdh_sdk.settings import app_setting
 from . import catalog
 from .models import Photo, Restaurant
 from .places import maybe_refresh_async
+from .plugin import SHORTLIST_URL
 
 NOTE_MAX = 500
 
@@ -43,7 +44,7 @@ def index(request):
     config = {
         "owner": owner,
         "ownerUrl": reverse("restaurants_owner", args=["__slug__"]),
-        "shortlistUrl": app_setting("restaurants", "shortlist_url", "https://blackdiamondlodge.github.io/shortlist/"),
+        "shortlistUrl": app_setting("restaurants", "shortlist_url", SHORTLIST_URL),
         "today": catalog.DAYS[(catalog.local_now(None, now).weekday() + 1) % 7],
         "lodge": catalog.LODGE,
         "summary": f"{open_now} of {len(visible)} open now",

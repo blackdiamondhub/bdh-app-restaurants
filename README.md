@@ -6,12 +6,50 @@ shortlist (with "send to my phone" QR) and owner picks/notes.
 
 ## Configuration
 
-| Setting | Env var | Default |
+Both are on the hub's **Settings → Restaurants** page.
+
+| Setting | Key | Default |
 |---|---|---|
-| Google Places API key | `BDH_RESTAURANTS_GOOGLE_PLACES_API_KEY` or `GOOGLE_PLACES_API_KEY` | empty (no fetching) |
-| Shortlist page | `BDH_RESTAURANTS_SHORTLIST_URL` | `https://blackdiamondlodge.github.io/shortlist/` |
+| Google Places API key (secret) | `google_places_api_key` | empty (no fetching) |
+| Shortlist link | `shortlist_url` | `https://blackdiamondlodge.github.io/shortlist/` |
 
 The key needs **Places API (New)** enabled and billing on (photos are a paid SKU).
+Running in the hub (not in a container), the key can also come from `BDH_RESTAURANTS_GOOGLE_PLACES_API_KEY`
+or `GOOGLE_PLACES_API_KEY`, and the link from `BDH_RESTAURANTS_SHORTLIST_URL`.
+
+## Container (hub API 2)
+
+Since 2.0.0 the app runs in its own container: no permissions (it only reads its own settings and
+secret), `network: outbound` (Google Places), `lifecycle: on_demand` with `wake_every: 3600`,
+`memory_mb: 96`. Pages, photos and the tile come from the app's own SQLite, so nothing needs to stay
+running: whatever wakes the app (a visit, or the hub refreshing the tile at least hourly so "N open
+now" stays current) also starts the background Google refresh when places are stale, and the app is
+up for 10 idle minutes, far longer than a refresh takes.
+
+In the container the hub's environment variables are not visible to the app. Set on the hub:
+
+- the `google_places_api_key` secret (today the hub's `GOOGLE_PLACES_API_KEY`); the hub's vault
+  also picks up an older plain `google_places_api_key` setting;
+- `shortlist_url` only if it differs from the default (today `BDH_RESTAURANTS_SHORTLIST_URL`).
+
+### Moving to a container
+
+The places, owner picks/notes and cached Google data and photos are rows in the app's tables
+(photos are database blobs, there are no media files), so they move with the SDK's fixture tools:
+
+1. On the hub: `python -m bdh_sdk.appdata export restaurants -o restaurants.json`.
+2. Copy `restaurants.json` into the app's data volume, then in the container run
+   `python -m bdh_sdk.runtime.manage import_app_data /data/restaurants.json --replace`
+   (`--replace` drops the places the container's migrations seeded).
+
+Skipping the import only loses owner picks/notes and hidden flags: the seeded places come back and
+the next refresh refetches details and photos from Google.
+
+The container has no Django admin; add or remove places with
+`python -m bdh_sdk.runtime.manage shell` there.
+
+CI's `image` job (from bdh-sdk's `app-ci.yml`) locks the dependencies against the hub's app
+runtime, builds the app's image and smoke-tests it the way the supervisor runs it.
 
 ## Data refresh & cost
 
@@ -22,7 +60,8 @@ The key needs **Places API (New)** enabled and billing on (photos are a paid SKU
   viewed (1 h lock). Force a refresh with:
 
   ```
-  python manage.py refresh_restaurants --force
+  python manage.py refresh_restaurants --force                    # in the hub
+  python -m bdh_sdk.runtime.manage refresh_restaurants --force    # in the container
   ```
 
 ## Owner editing
