@@ -13,7 +13,7 @@ class Command(BaseCommand):
     def handle(self, *args, force=False, **options):
         counts = refresh(force=force)
         if counts["skipped"]:
-            self.stderr.write("No Google Places API key (GOOGLE_PLACES_API_KEY); nothing fetched.")
+            self.stderr.write("No Google Places API key (the google_places_api_key secret); nothing fetched.")
             return
         self.stdout.write(f"Fetched {counts['details']} places and {counts['photos']} photos "
                           f"({counts['errors']} errors).")

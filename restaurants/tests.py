@@ -233,6 +233,92 @@ class RefreshTests(TestCase):
         self.assertEqual(Photo.objects.count(), 3)
 
 
+class ManifestTests(TestCase):
+    def test_hub_api_2_manifest(self):
+        from restaurants.plugin import spec
+        m = spec.manifest()
+        self.assertEqual(m["api_version"], 2)
+        self.assertEqual(m["permissions"], [])
+        self.assertEqual((m["network"], m["lifecycle"], m["wake_every"], m["memory_mb"]),
+                         ("outbound", "on_demand", 3600, 96))
+        types = {s.key: s.type for s in spec.settings}
+        self.assertEqual(types, {"google_places_api_key": "secret", "shortlist_url": "str"})
+
+
+class BrokerTests(TestCase):
+    """In its container the app reads its key and settings from the hub through the broker."""
+
+    def setUp(self):
+        from bdh_sdk import rpc
+        from bdh_sdk.testing import FakeBroker
+
+        self.broker = FakeBroker(grants=("settings.get", "secrets.get"), install=True, app_id="restaurants")
+        self.broker.start()
+        self.addCleanup(self.broker.stop)
+        self.flush = lambda: rpc.flush(5)
+        Restaurant.objects.exclude(slug="bolacco-cafe").delete()
+
+    def refresh(self):
+        def get(url, **kwargs):
+            if url.endswith("/media"):
+                return response(content=b"jpeg", content_type="image/jpeg")
+            return response(place(photos=[{"name": "places/pid/photos/0"}]))
+
+        with patch("restaurants.places.requests.get", side_effect=get) as mock:
+            counts = places.refresh()
+        return counts, mock
+
+    def test_refresh_uses_the_secret_from_the_broker(self):
+        self.broker.secrets[("restaurants", "google_places_api_key")] = "from-vault"
+        counts, get = self.refresh()
+        self.assertEqual((counts["details"], counts["photos"]), (1, 1))
+        self.assertEqual(get.call_args_list[0].kwargs["headers"]["X-Goog-Api-Key"], "from-vault")
+        self.assertTrue(self.broker.ops("secrets.get"))
+
+    def test_plain_setting_is_the_fallback(self):
+        self.broker.settings[("restaurants", "google_places_api_key")] = "plain"
+        _, get = self.refresh()
+        self.assertEqual(get.call_args_list[0].kwargs["headers"]["X-Goog-Api-Key"], "plain")
+
+    def test_no_key_anywhere_fetches_nothing(self):
+        counts, get = self.refresh()
+        self.assertTrue(counts["skipped"])
+        get.assert_not_called()
+
+    def test_shortlist_url_setting(self):
+        self.broker.settings[("restaurants", "shortlist_url")] = "https://example.com/list/"
+        with patch("restaurants.views.maybe_refresh_async"):
+            r = self.client.get(reverse("restaurants"))
+        self.assertContains(r, "https://example.com/list/")
+
+
+class AppDataTests(TestCase):
+    """The hub's rows (photos are database blobs) survive the move to the container's SQLite."""
+
+    def test_export_import_round_trip(self):
+        from io import StringIO
+
+        from bdh_sdk.appdata import export_rows, import_rows
+
+        r = Restaurant.objects.get(slug="bolacco-cafe")
+        r.data, r.pick, r.fetched_at = place(), True, timezone.now()
+        r.save()
+        Photo.objects.create(restaurant=r, position=0, image=b"\xff\xd8jpeg\x00", content_type="image/jpeg",
+                             author="A")
+        out = StringIO()
+        count = export_rows("restaurants", out)
+        self.assertEqual(count, Restaurant.objects.count() + 1)
+        Restaurant.objects.filter(slug="bolacco-cafe").update(note="changed")
+        Restaurant.objects.exclude(slug="bolacco-cafe").first().delete()
+
+        self.assertEqual(import_rows("restaurants", StringIO(out.getvalue()), replace=True), count)
+        self.assertEqual(Restaurant.objects.count(), 23)
+        r = Restaurant.objects.get(slug="bolacco-cafe")
+        self.assertEqual((r.data["rating"], r.pick, r.note), (4.5, True, ""))
+        photo = r.photos.get()
+        self.assertEqual((bytes(photo.image), photo.author), (b"\xff\xd8jpeg\x00", "A"))
+
+
 @override_settings(BDH_RESTAURANTS_GOOGLE_PLACES_API_KEY="")
 class ViewTests(TestCase):
     def setUp(self):
