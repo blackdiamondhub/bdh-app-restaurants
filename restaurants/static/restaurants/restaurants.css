@@ -1,9 +1,14 @@
-/* Restaurants — ported from the approved mockup. The page fills the screen
-   under the hub's fixed navbar; the grid and shortlist scroll on their own. */
+/* Restaurants — ported from the approved mockup. The page fills the hub's
+   iframe (the hub navbar sits outside it); the grid and shortlist scroll on their own.
+   The body is a column: the SDK toolbar (phone quick filters only) and then the
+   content, which takes the rest of the height so nothing depends on a bar height. */
 body.rs-page{font-family:"Segoe UI",system-ui,sans-serif;color:#e8eef5;overflow:hidden;
+  display:flex;flex-direction:column;height:100vh;height:100dvh;
   background:radial-gradient(ellipse 120% 80% at 50% 0%,#2a2238 0%,#121019 55%,#08070b 100%) fixed}
 .rs-page *{box-sizing:border-box}
-.rs-wrap{position:fixed;top:62px;left:0;right:0;bottom:0;display:flex;padding:22px 28px 0 36px;gap:26px}
+.rs-page .bdh-toolbar{display:none}
+.rs-page .content-wrapper{flex:1 1 auto;min-height:0;position:relative;padding:0}
+.rs-wrap{position:absolute;inset:0;display:flex;padding:22px 28px 0 36px;gap:26px}
 .rs-main{flex:1;display:flex;flex-direction:column;min-width:0}
 .rs-top{display:flex;flex-wrap:wrap;align-items:flex-end;gap:16px;margin-bottom:18px}
 .fg{display:flex;flex-direction:column;gap:6px}
@@ -135,11 +140,13 @@ body.rs-page{font-family:"Segoe UI",system-ui,sans-serif;color:#e8eef5;overflow:
   background:#2a2a30!important;color:#fff!important;border-color:#444!important}
 .rs-page .leaflet-bar a.recentre{font-size:20px!important}
 
-/* ── Phone (≤600px): one column of compact cards, quick filters in the hub's
-   sub-row, and the filter groups and shortlist as bottom sheets. ── */
-.navbar .rs-qbar,.rs-sh,.rs-showbtn,.rs-psum,.rs-sharebtn,.rs-dim,.rs-fab,.si .dir,.dmaps{display:none}
+/* ── Phone (≤600px): one column of compact cards, quick filters in the SDK
+   toolbar, and the filter groups and shortlist as bottom sheets. ── */
+.rs-qbar,.rs-sh,.rs-showbtn,.rs-psum,.rs-sharebtn,.rs-dim,.rs-fab,.si .dir,.dmaps{display:none}
 @media (max-width:600px){
-  .navbar:not(.is-home) .rs-qbar{display:flex;overflow:hidden;padding-right:0}
+  .rs-page .bdh-toolbar{display:flex;flex:none;justify-content:flex-start;padding:0;height:56px;
+    background:linear-gradient(180deg,rgba(17,25,38,.92),rgba(17,25,38,.82));border-bottom:1px solid rgba(255,255,255,.08)}
+  .rs-qbar{display:flex;align-items:center;gap:8px;position:relative;flex:1 1 auto;width:100%;min-width:0;height:100%;overflow:hidden;margin:0;padding-left:12px}
   .rs-qbar .rs-qs{display:flex;gap:8px;overflow-x:auto;scrollbar-width:none;flex:1 1 auto;min-width:0;padding-right:44px;height:100%;align-items:center}
   .rs-qbar .rs-qs::-webkit-scrollbar{display:none}
   .rs-qbar::after{content:"";position:absolute;right:0;top:0;bottom:0;width:56px;pointer-events:none;
@@ -152,7 +159,7 @@ body.rs-page{font-family:"Segoe UI",system-ui,sans-serif;color:#e8eef5;overflow:
   .qc.qf i{color:#7cc4ff}
   .qc .n{background:#5ba4e6;color:#0c1622;font-weight:700;font-size:11.5px;border-radius:999px;padding:1px 7px}.qc .n:empty{display:none}
 
-  .rs-wrap{top:118px;padding:0;gap:0;display:block}
+  .rs-wrap{padding:0;gap:0;display:block}
   .rs-main{height:100%}
   .rs-psum{display:block;flex:none;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:#8fa3bd;padding:14px 16px 10px}
   .rs-grid{grid-template-columns:1fr;gap:10px;padding:0 14px calc(100px + env(safe-area-inset-bottom));-webkit-mask:none}
