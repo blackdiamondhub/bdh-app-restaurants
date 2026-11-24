@@ -1,7 +1,7 @@
 from bdh_sdk import PluginSpec, Setting, Tile
 from bdh_sdk.plugins import LIFECYCLE_ON_DEMAND, NETWORK_OUTBOUND, SECRET
 
-SHORTLIST_URL = "https://blackdiamondlodge.github.io/shortlist/"
+SHORTLIST_URL = "https://blackdiamondhub.github.io/shortlist/"
 
 spec = PluginSpec(
     id="restaurants",
