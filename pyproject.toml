@@ -15,7 +15,7 @@ dependencies = [
 ]
 
 [project.urls]
-Source = "https://github.com/blackdiamondlodge/bdh-app-restaurants"
+Source = "https://github.com/blackdiamondhub/bdh-app-restaurants"
 
 [project.entry-points."blackdiamondhub.plugins"]
 restaurants = "restaurants.plugin:spec"
