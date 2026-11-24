@@ -91,6 +91,6 @@ the page looks up in its `places.json`. The kiosk only uses a code when the
 published file lists the same name and place ID; otherwise that place goes in
 the long `Name~PlaceID` form, so links always work. After adding or renaming
 restaurants, refresh the file in the
-[shortlist repo](https://github.com/blackdiamondlodge/shortlist):
+[shortlist repo](https://github.com/blackdiamondhub/shortlist):
 
     python manage.py export_shortlist_places --merge places.json > new.json

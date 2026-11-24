@@ -1,4 +1,4 @@
-"""Print places.json for the shortlist page (blackdiamondlodge/shortlist).
+"""Print places.json for the shortlist page (blackdiamondhub/shortlist).
 
 Kiosk shortlist links carry short codes that the page looks up in this file.
 Re-run after adding or renaming restaurants and commit the output to the
