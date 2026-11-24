@@ -244,6 +244,18 @@ class ManifestTests(TestCase):
         types = {s.key: s.type for s in spec.settings}
         self.assertEqual(types, {"google_places_api_key": "secret", "shortlist_url": "str"})
 
+    def test_default_shortlist_url_follows_the_github_org(self):
+        """The shortlist is a Pages site in our org; an org rename 404'd the old default for guests."""
+        import re
+        from importlib.metadata import metadata
+
+        from restaurants.plugin import SHORTLIST_URL
+
+        urls = metadata("bdh-app-restaurants").get_all("Project-URL") or []
+        source = next(u.split(",", 1)[1].strip() for u in urls if u.lower().startswith("source,"))
+        org = re.match(r"https://github\.com/([^/]+)/", source).group(1)
+        self.assertEqual(SHORTLIST_URL, f"https://{org.lower()}.github.io/shortlist/")
+
 
 class BrokerTests(TestCase):
     """In its container the app reads its key and settings from the hub through the broker."""

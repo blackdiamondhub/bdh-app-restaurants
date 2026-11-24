@@ -11,7 +11,7 @@ Both are on the hub's **Settings → Restaurants** page.
 | Setting | Key | Default |
 |---|---|---|
 | Google Places API key (secret) | `google_places_api_key` | empty (no fetching) |
-| Shortlist link | `shortlist_url` | `https://blackdiamondlodge.github.io/shortlist/` |
+| Shortlist link | `shortlist_url` | `https://blackdiamondhub.github.io/shortlist/` |
 
 The key needs **Places API (New)** enabled and billing on (photos are a paid SKU).
 Running in the hub (not in a container), the key can also come from `BDH_RESTAURANTS_GOOGLE_PLACES_API_KEY`
