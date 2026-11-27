@@ -17,6 +17,23 @@ The key needs **Places API (New)** enabled and billing on (photos are a paid SKU
 Running in the hub (not in a container), the key can also come from `BDH_RESTAURANTS_GOOGLE_PLACES_API_KEY`
 or `GOOGLE_PLACES_API_KEY`, and the link from `BDH_RESTAURANTS_SHORTLIST_URL`.
 
+## Assistant tools
+
+The hub's assistant (e.g. the voice app) can look up places to eat through one read-only tool,
+offered in every mode (guest, dashboard and owner). The hub only offers it when `restaurants` is
+in its `assistant_apps` setting (Settings > Location > Assistant).
+
+| Tool | Params (all optional) | Answers |
+|---|---|---|
+| `find_restaurants` | `name` (one place, the guest's words: "masas", "the pizza place"), `food` (pizza, sushi, coffee, breakfast, dinner, après, takeout, delivery, reservations, patio, kids...), `when` (now, tonight, 7 pm, tomorrow morning, saturday dinner) | With `name`: its kind, status ("open until 10 pm", "closed, opens tomorrow at 11 am", "closed for the season"), today's hours (and the asked day's), phone, price, rating, takeout/delivery/reservations, distance, Google's summary and the owner's note. Without: up to 6 places (open first, then by rating) with status and hours, how many are open then, the rest by name, places closed for the season, and when nothing is open the next to open |
+
+Names are matched loosely (case, accents, apostrophes, misheard words). `food` words map to the
+page's meal tags, categories and Google's attributes; other words search names and summaries
+("poutine"), and a word nothing lists fails with a hint. With `when` only places open then are
+listed; a meal alone ("dinner" at 2 pm) means that meal's usual time (6:30 pm) unless it's under
+way, and a time already well past rolls to tomorrow. Times are lodge time (UTC-7 all year) and
+hours that run past midnight count for the night they start. Without Google data the tool says
+it has no hours; hours older than four days come with a note.
 ## Container (hub API 2)
 
 Since 2.0.0 the app runs in its own container: no permissions (it only reads its own settings and

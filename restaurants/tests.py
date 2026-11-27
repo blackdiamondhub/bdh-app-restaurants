@@ -6,7 +6,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.staticfiles.testing import StaticLiveServerTestCase
 from django.core.cache import cache
 from django.core.management import call_command
-from django.test import TestCase, override_settings, tag
+from django.test import TestCase, TransactionTestCase, override_settings, tag
 from django.urls import reverse
 from django.utils import timezone
 
@@ -477,3 +477,164 @@ class HubFrameLayoutTests(TestCase):
                 if pattern.search(line):
                     hits.append(f"{path.relative_to(root)}:{n}: {line.strip()}")
         self.assertEqual(hits, [])
+
+
+class AssistantToolTests(TransactionTestCase):
+    """The assistant's restaurant lookup, run the way the hub runs it (FakeBroker sessions).
+
+    The fake broker runs tools on its own thread, so the rows must be committed.
+    """
+
+    def setUp(self):
+        from bdh_sdk import Stay, settings
+        from bdh_sdk.testing import FakeBroker
+
+        saved = settings._store
+        self.broker = FakeBroker(grants=("tools.*",), install=True, app_id="restaurants")
+        self.broker.start()
+        self.addCleanup(settings.set_store, saved)
+        self.addCleanup(self.broker.stop)
+        self.broker.stay = Stay(guest="Smith")  # a voice session during a stay is in guest mode
+        Restaurant.objects.all().delete()
+        fetched = local(2026, 11, 9, 6)
+        for slug, name, category, tags, data in (
+            ("masas", "Masa's Bar & Grill", "pub", "apres lunch dinner",
+             place(regularOpeningHours=weekly(9, 22), nationalPhoneNumber="(250) 578-5434", takeout=True,
+                   rating=4.3, priceLevel="PRICE_LEVEL_MODERATE")),
+            ("pizza", "Mountain High Pizza", "pizza", "lunch dinner",
+             place(regularOpeningHours=weekly(11, 22), delivery=True, rating=4.6)),
+            ("bottoms", "Bottoms Bar & Grill", "pub", "apres dinner",
+             place(regularOpeningHours=weekly(11, 1, close_next_day=True), rating=4.0)),
+            ("oya", "Oya Japanese Cuisine", "japanese", "dinner",
+             place(regularOpeningHours=weekly(16, 21, days=range(1, 7)), rating=4.8)),
+            ("soleil", "Café Soleil", "cafe", "coffee breakfast", place(regularOpeningHours=weekly(7, 16))),
+            ("fondue", "Fondue Stube", "fondue", "dinner", {"businessStatus": "FUTURE_OPENING"}),
+        ):
+            Restaurant.objects.create(slug=slug, name=name, category=category, tags=tags, data=data,
+                                      fetched_at=fetched)
+        self.now = local(2026, 11, 9, 12)  # Monday noon at the lodge
+        for target, kwargs in (("restaurants.assistant.utc_now", {"side_effect": lambda: self.now}),
+                               ("restaurants.places.maybe_refresh_async", {})):
+            patcher = patch(target, **kwargs)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def call(self, args=None):
+        from bdh_sdk import tools as sdk_tools
+        from restaurants import assistant
+
+        self.broker.assistant_tools.clear()
+        for tool in assistant.tools(mode="guest"):
+            self.broker.add_tool(tool, lambda a, t=tool.id: assistant.run_tool(t, a, mode="guest"))
+        return sdk_tools.call_tool(sdk_tools.open_session(), "find_restaurants", args)
+
+    def find(self, **args):
+        result = self.call(args)
+        self.assertTrue(result["ok"], result)
+        return result["result"]
+
+    def test_every_mode_gets_one_readonly_lookup(self):
+        from bdh_sdk import ALL_MODES, hooks
+        from restaurants import assistant
+        from restaurants.plugin import spec
+        for mode in sorted(ALL_MODES):
+            with self.subTest(mode=mode):
+                tools = assistant.tools(mode=mode)
+                self.assertEqual([t.id for t in tools], ["find_restaurants"])
+                self.assertEqual((tools[0].modes, tools[0].readonly, tools[0].confirm), (ALL_MODES, True, False))
+                self.assertLessEqual(len(tools[0].description), 300)
+        self.assertEqual([t["id"] for t in hooks.run(spec, "tools", mode="guest")], ["find_restaurants"])
+
+    def test_one_place_in_loose_words(self):
+        expected = {"name": "Masa's Bar & Grill", "kind": "Pub & grill", "status": "open until 10 pm",
+                    "hours_today": "9 am to 10 pm", "phone": "(250) 578-5434", "price": "$$",
+                    "rating": "4.3 stars", "offers": "takeout", "distance": "1.6 km from the lodge"}
+        for text in ("Masa's", "masas", "is massas open", "Masa's bar and grill"):
+            with self.subTest(text=text):
+                self.assertEqual(self.find(name=text), expected)
+        self.assertEqual(self.find(name="cafe soleil")["status"], "open until 4 pm")
+
+    def test_hours_across_midnight_and_closing_days(self):
+        self.now = local(2026, 11, 10, 0, 30)  # just after midnight, Monday night
+        bottoms = self.find(name="bottoms")
+        self.assertEqual((bottoms["status"], bottoms["hours_today"]), ("open until 1 am", "11 am to 1 am"))
+        self.now = local(2026, 11, 15, 12)  # Oya is closed on Sundays
+        oya = self.find(name="oya")
+        self.assertEqual((oya["status"], oya["hours_today"]), ("closed, opens tomorrow at 4 pm", "closed"))
+        self.assertEqual(self.find(name="oya", when="saturday")["hours_saturday"], "4 pm to 9 pm")
+
+    def test_seasonal_closure(self):
+        self.assertEqual(self.find(name="fondue stube"), {"name": "Fondue Stube", "kind": "Fondue",
+                                                          "status": "closed for the season",
+                                                          "hours_today": "closed for the season"})
+        out = self.find(food="fondue")
+        self.assertEqual((out["places"], out["closed_for_season"]), ([], "Fondue Stube"))
+        self.assertNotIn("Fondue Stube", str(self.find(food="dinner")["places"]))
+
+    def test_food_lists_open_places_first(self):
+        self.now = local(2026, 11, 9, 23)
+        out = self.find(food="pizza")
+        self.assertEqual(out["places"], [{"name": "Mountain High Pizza", "kind": "Pizza",
+                                          "status": "closed, opens tomorrow at 11 am",
+                                          "hours": "today 11 am to 10 pm"}])
+        self.assertEqual(self.find(food="sushi")["places"][0]["name"], "Oya Japanese Cuisine")
+        self.assertEqual([p["name"] for p in self.find(food="pizza delivery")["places"]], ["Mountain High Pizza"])
+        self.assertEqual([p["name"] for p in self.find(food="takeout")["places"]], ["Masa's Bar & Grill"])
+
+    def test_dinner_in_the_afternoon_means_tonight(self):
+        out = self.find(food="dinner")
+        self.assertEqual(out["when"], "tonight at 6:30 pm")
+        self.assertEqual([p["name"] for p in out["places"]],
+                         ["Oya Japanese Cuisine", "Mountain High Pizza", "Masa's Bar & Grill", "Bottoms Bar & Grill"])
+        self.assertEqual(out["places"][0]["status"], "closed, opens at 4 pm")
+
+    def test_when_lists_only_places_open_then(self):
+        self.now = local(2026, 11, 9, 23, 30)
+        out = self.find()
+        self.assertEqual((out["when"], out["open_then"]), ("now", "1 of 5 places"))
+        self.assertEqual(out["places"][0]["status"], "open until 1 am")
+        out = self.find(food="coffee", when="now")
+        self.assertEqual(out["note"], "Nothing that fits is open now.")
+        self.assertEqual(out["opens_next"], ["Café Soleil opens tomorrow at 7 am"])
+        out = self.find(when="tomorrow at 8")
+        self.assertEqual(out["when"], "tomorrow at 8 pm")
+
+    def test_parse_when(self):
+        import datetime
+        from restaurants.assistant import parse_when
+        noon = datetime.datetime(2026, 11, 9, 12)
+        cases = {
+            "7 pm": (datetime.datetime(2026, 11, 9, 19), "tonight at 7 pm"),
+            "at 7": (datetime.datetime(2026, 11, 9, 19), "tonight at 7 pm"),
+            "7:30 a.m.": (datetime.datetime(2026, 11, 10, 7, 30), "tomorrow at 7:30 am"),
+            "tomorrow morning": (datetime.datetime(2026, 11, 10, 9), "tomorrow at 9 am"),
+            "saturday dinner": (datetime.datetime(2026, 11, 14, 18, 30), "Saturday at 6:30 pm"),
+            "tonight at 9": (datetime.datetime(2026, 11, 9, 21), "tonight at 9 pm"),
+            "lunch": (noon, "now"),
+            "breakfast": (datetime.datetime(2026, 11, 10, 8), "tomorrow at 8 am"),
+        }
+        for text, (when, label) in cases.items():
+            with self.subTest(text=text):
+                t, _, got = parse_when(text, noon)
+                self.assertEqual((t, got), (when, label))
+        self.assertIsNone(parse_when("right now", noon))
+        self.assertEqual(parse_when("friday", noon), (None, datetime.date(2026, 11, 13), "Friday"))
+
+    def test_unknowns_say_why(self):
+        for args, error in (
+            ({"name": "the bento box"}, "There's no 'the bento box' on the Sun Peaks restaurant list."),
+            ({"food": "tacos"}, "None of the Sun Peaks places list taco. Try pizza"),
+            ({"when": "whenever"}, "I can't tell when 'whenever' is"),
+        ):
+            with self.subTest(args=args):
+                result = self.call(args)
+                self.assertFalse(result["ok"])
+                self.assertTrue(result["error"].startswith(error), result["error"])
+
+    def test_no_hours_and_stale_hours(self):
+        self.now = local(2026, 11, 16, 12)
+        self.assertEqual(self.find(name="masas")["note"],
+                         "Hours were last checked 7 days ago and may have changed.")
+        Restaurant.objects.update(data={})
+        self.assertEqual(self.call({"food": "pizza"}), {"ok": False,
+                                                        "error": "I don't have the restaurants' hours right now."})

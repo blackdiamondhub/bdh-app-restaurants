@@ -8,6 +8,9 @@ spec = PluginSpec(
     app="restaurants",
     urls="restaurants.urls",
     status="restaurants.homepage.status",
+    # A read-only restaurant lookup for the hub's assistant, in every mode.
+    tools="restaurants.assistant.tools",
+    run_tool="restaurants.assistant.run_tool",
     tiles=(
         Tile(
             title="Restaurants",
